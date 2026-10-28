@@ -75,11 +75,38 @@ def main():
         min_tracking_confidence=0.6
     )
 
-    # Step 2: Open webcam
-    cap = cv2.VideoCapture(0)
+    # Step 2: Open webcam (try DirectShow and indices 0, 1, 2)
+    cap = None
+    for idx in [0, 1, 2]:
+        for backend in [cv2.CAP_DSHOW, cv2.CAP_ANY]:
+            temp_cap = cv2.VideoCapture(idx, backend)
+            if temp_cap.isOpened():
+                ret, _ = temp_cap.read()
+                if ret:
+                    cap = temp_cap
+                    print(f"Webcam opened successfully on index {idx} with backend {backend}.")
+                    break
+            temp_cap.release()
+        if cap is not None:
+            break
 
-    if not cap.isOpened():
+    if cap is None or not cap.isOpened():
         print("Error: Could not open webcam. Verify camera connection.")
+        # Render fallback HUD window explaining no camera was found
+        import numpy as np
+        err_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        cv2.putText(err_frame, "SIGNCONNECT LIVE - PHASE 1", (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 255), 2)
+        cv2.putText(err_frame, "Status: No Working Webcam Detected", (30, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 255), 2)
+        cv2.putText(err_frame, "Please connect a webcam or check Windows privacy", (30, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+        cv2.putText(err_frame, "settings to allow desktop camera access.", (30, 230), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+        cv2.putText(err_frame, "Press 'Q' to Close this window.", (30, 320), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
+        while True:
+            cv2.imshow("SignConnect Live - Phase 1 ISL", err_frame)
+            k = cv2.waitKey(30) & 0xFF
+            if k == ord('q') or k == ord('Q') or cv2.getWindowProperty("SignConnect Live - Phase 1 ISL", cv2.WND_PROP_VISIBLE) < 1:
+                break
+        cv2.destroyAllWindows()
+        hands.close()
         return
 
     print("==================================================")
@@ -95,6 +122,7 @@ def main():
 
     current_stable_sign = "NO HAND DETECTED"
     current_confidence = 0.0
+    last_logged_sign = None
 
     try:
         while cap.isOpened():
@@ -143,6 +171,9 @@ def main():
             if count >= 4:
                 current_stable_sign = most_common_gesture
                 current_confidence = sum(confidence_history) / len(confidence_history)
+                if current_stable_sign != last_logged_sign and current_stable_sign not in ['NO HAND DETECTED', 'Detecting...']:
+                    print(f'PREDICTED: {current_stable_sign} ({current_confidence:.1f}%)', flush=True)
+                    last_logged_sign = current_stable_sign
             elif not gesture_history:
                 current_stable_sign = "Detecting..."
                 current_confidence = 0.0
